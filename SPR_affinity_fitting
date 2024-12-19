@@ -1,0 +1,267 @@
+# Default import list
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import tkinter as tk
+from tkinter import filedialog
+import os
+import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
+from palettable.wesanderson import Mendl_4
+from matplotlib.ticker import AutoMinorLocator
+#%%
+plt.close()
+#%% import file
+def file_path(): 
+    root = tk.Tk()
+    root.withdraw()
+    root.call('wm', 'attributes', '.', '-topmost', True)
+    file_full_path = filedialog.askopenfilename()
+    root.destroy()
+    folder_path = os.path.dirname(file_full_path)
+    return file_full_path, folder_path
+file_path, folder_path = file_path()
+File_name = str(os.path.basename(file_path).split('.')[0])
+def figure_export_png(Path = folder_path, Name = File_name, suffix = '_figure_png'):
+    full_name = os.path.join(Path, Name + suffix + '.png')
+    return plt.savefig(full_name, format='png', dpi=300)
+def figure_export_svg(Path = folder_path, Name = File_name, suffix = '_figure_svg'):
+    full_name = os.path.join(Path, Name + suffix + '.svg')
+    return plt.savefig(full_name, format='svg')
+# Export dataframe to excel
+def excel_export_df(dataframe, Name = File_name + '_export', Path = folder_path):
+    excel_path = os.path.join(folder_path, Name)+'.xlsx'
+    with pd.ExcelWriter(excel_path) as excel_writer:
+        dataframe.to_excel(excel_writer, index = False, sheet_name = 'Default')
+    return
+# Export dictionary to excel
+def excel_export_dict(data_dict, Name = File_name + '_export', Path = folder_path):
+    excel_path = os.path.join(folder_path, Name)+'.xlsx'
+    with pd.ExcelWriter(excel_path) as excel_writer:
+        for key, df in data_dict.items():
+            df.to_excel(excel_writer, index = False, sheet_name = key)
+    return
+#%% 
+def df_construction(sheet_number = 0, Column_to_use = [0], Column_names = ['Peak Area (nA·ms)']):
+    df = pd.read_excel(file_path, 
+                       sheet_name = sheet_number, 
+                       usecols = Column_to_use, 
+                       names = Column_names)
+    return df
+df = df_construction(sheet_number = 0, 
+                     Column_to_use = [0, 1, 2], 
+                     Column_names = ['Time (s)', 'Response (RU)', 'Category'])
+df = df.dropna()
+# Convert "Category" to numeric values
+df['Category_num'] = df.iloc[:, 2].str.replace(' nM', '').astype(float)
+df = df.sort_values(by = 'Category_num', ascending = True).reset_index(drop = True)
+df = df.drop(columns=['Category_num'])
+
+filtered_df = df[(df.iloc[:, 0] >= -5) & (df.iloc[:, 0] <= 170)]
+
+
+
+
+#%%
+# Define the exponential function
+def exponential(x, a, b, c):
+    return a * np.exp(b * x) + c
+# Define the exponential decay function
+def exponential_decay(x, a, b, c):
+    return a * np.exp(-b * x) + c
+# Define the combined function: exponential decay + straight line
+def combine_exponentialdecay_straightline(x, a, b, c, d):
+    return a * np.exp(-b * x) + c * x + d
+
+
+def fitting_rawsignal(dataframe,
+                      function,
+                      categories_column = 2,
+                      figsize_width = 10,
+                      figsize_height = 2,
+                      ):
+
+    data = dataframe
+    
+    data_colour = Mendl_4.hex_colors[1] 
+    fit_colour = Mendl_4.hex_colors[0] 
+    
+    # Group by Category
+    categories = data.iloc[:, categories_column].unique()
+    
+    # Empty Dictionary to store fitted value
+    fit_data = {}
+    # empty list to store data
+    category_list = []
+    value_list = []
+    k_constant_list = []
+    y_max_list = []
+    
+    # Create subplots (adjust grid size for your number of categories)
+    n_rows = int(np.ceil(len(categories) / 4))
+    n_cols = min(len(categories), 4)
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(figsize_width, figsize_height), sharex=True, sharey=False)
+    axes = axes.flatten()
+    
+    for i, category in enumerate(categories):
+        # Filter data for the category
+        subset = data[data['Category'] == category]
+        # Extract time and response
+        x_data = subset['Time (s)']
+        y_data = subset['Response (RU)']
+        
+        
+        # Perform exponential fitting
+        try:
+            popt, _ = curve_fit(function, x_data, y_data, maxfev=10000)
+            # Generate fitted data
+            x_fit = np.linspace(x_data.min(), x_data.max(), 500)
+            y_fit = function(x_fit, *popt)
+            # Create a dataframe for the fitted values and store it in the dictionary
+            fit_data[category] = pd.DataFrame({"Time (s)": x_fit, "Fitted Response (RU)": y_fit})
+            # extract additional data
+            k_constant = popt[1]
+            ymax = y_fit[-1]
+            # Parse the numeric value from the category name
+            value = float(''.join([c for c in category if c.isdigit() or c == '.']))
+            # Plot data and fit
+            axes[i].scatter(x_data, y_data, label="Data", color=data_colour, s = 20)
+            axes[i].plot(x_fit, y_fit, linestyle='--', color=fit_colour, label="Fit", lw = 2)
+            axes[i].set_title(f"{category}")
+            axes[i].legend()
+            # Append the results
+            category_list.append(category)
+            value_list.append(value)
+            k_constant_list.append(k_constant)
+            y_max_list.append(ymax)
+        except RuntimeError:
+            axes[i].text(0.5, 0.5, "Fit failed", ha='center', va='center', transform=axes[i].transAxes)
+            axes[i].set_title(f"{category}")
+        
+    # Hide any unused subplots
+    for j in range(len(categories), len(axes)):
+        fig.delaxes(axes[j])
+    # Create the final dataframe
+    result_df = pd.DataFrame({
+        "Category": category_list,
+        "Analyte Concentration (nM)": value_list,
+        "k constant": k_constant_list,
+        "Maximum Response (RU)": y_max_list})
+    
+    plt.tight_layout()
+    plt.show()
+    return fit_data, result_df
+#%%
+fit_data_dfs, fit_data_df = fitting_rawsignal(dataframe = filtered_df,
+                                              function = combine_exponentialdecay_straightline,
+                                              categories_column = 2,
+                                              figsize_width = 16,
+                                              figsize_height = 8,
+                                              )
+figure_export_png(suffix='_fitting_rawsignal')
+excel_export_df(dataframe = fit_data_df, Name = File_name + '_fit_data_df_' + '_export', Path = folder_path)
+excel_export_dict(data_dict = fit_data_dfs, Name = File_name + '_fit_data_dfs_' + '_export', Path = folder_path)
+#%%
+df_Langmuir_name = list(fit_data_df)
+df_Langmuir_fit = fit_data_df[(fit_data_df.iloc[:, 1] >= 0.5) & (fit_data_df.iloc[:, 1] <= 30)]
+
+# Define the Langmuir isotherm function
+def langmuir_isotherm(C, q_max, K):
+    """
+    Langmuir isotherm equation.
+
+    Parameters:
+    - C: Concentration of the adsorbate (mol/m³)
+    - q_max: Maximum adsorption capacity (mol/m²)
+    - K: Langmuir constant (m³/mol)
+
+    Returns:
+    - q: Amount of substance adsorbed (mol/m²)
+    """
+    return (q_max * K * C) / (1 + K * C)
+
+def fitting_langmuir(dataframe,
+                     function,
+                     #guess_q_max, #plateau
+                     guess_K, #curve steepness
+                     x_data_col = 1,
+                     y_data_col = 3,
+                     figsize_width = 10,
+                     figsize_height = 2,
+                     ):
+
+    data = dataframe
+    x_data = data.iloc[:, x_data_col]
+    y_data = data.iloc[:, y_data_col]
+    
+    data_colour = Mendl_4.hex_colors[1] 
+    fit_colour = Mendl_4.hex_colors[0]
+    
+    fig, ax = plt.subplots(figsize=(figsize_width, figsize_height))
+    # initial guess parameter
+    guess_q_max = np.max(y_data)
+    # Perform fitting
+    popt, pcov = curve_fit(langmuir_isotherm, x_data, y_data, p0=[guess_q_max, guess_K])  # Initial guess [q_max, K]
+    # Extract the fitted parameters
+    q_max_fit, K_fit = popt
+    # KD50 at half the maximum q_max response
+    KD50 = q_max_fit/2
+    # intercept at KD50 (solved from origianl Langmuir isotherm fitting)
+    affinity_KD50 = 1 / K_fit
+    
+    # Calculate the equation with fitted q_max_fit and K_fit
+    x_values = np.arange(0, np.max(x_data)+2, 0.1)  # Step size of 1, from 0 to x_data + 2 just in case
+    y_fit = langmuir_isotherm(x_values, q_max_fit, K_fit)
+    
+    # Plot the data and the fitted curve
+    sns.set(style = 'ticks',
+            rc = {'axes.facecolor': 'white'},
+            )
+    # Plot raw as scatter
+    ax.scatter(x_data, y_data, label="Data", color=data_colour, marker='o', zorder = 10)
+    # Plot the fitted line
+    ax.plot(x_values, y_fit, label="Langmuir Isotherm Fit", color=fit_colour, linestyle='--')
+    ax.axhline(y=KD50, color='grey', alpha = 0, linestyle='dotted', label=f'Half Rmax: {KD50:.2f} RU')
+    ax.axvline(x=affinity_KD50, color = 'grey', alpha = 0, linestyle = 'dotted', label = f'Affinity: {affinity_KD50:.2f} nM')
+    
+    plt.ylim(0, np.max(y_data)+2)
+    plt.xlim(0, np.max(x_data)+2)
+    plt.gca().spines['left'].set_position(('outward', 10))  # Adjust the left spine position
+    plt.gca().spines['bottom'].set_position(('outward', 10))  # Adjust the bottom spine position
+	    
+    ax.spines['top'].set_visible(False) #despine
+    ax.spines['right'].set_visible(False) #despine
+    #ax.spines['left'].set_linewidth(1.0)
+    #ax.spines['bottom'].set_linewidth(1.0)
+
+    #tick location
+    ax.xaxis.set_major_locator(plt.MaxNLocator(6))
+    ax.xaxis.set_minor_locator(AutoMinorLocator(2))
+    ax.yaxis.set_major_locator(plt.MaxNLocator(3))
+    ax.yaxis.set_minor_locator(AutoMinorLocator(2))
+
+
+	#tick and label size method 2
+    ax.set_xlabel(df_Langmuir_name[x_data_col], fontsize = 18)
+    ax.tick_params(axis='x', labelsize=14, rotation = 0)
+    ax.set_ylabel(df_Langmuir_name[y_data_col], fontsize = 18)
+    ax.tick_params(axis='y', labelsize=14, rotation = 0)
+    
+    ax.legend(loc = 'lower right', fontsize = 14, frameon = True)
+    plt.tight_layout()
+    plt.show()
+    
+    print(f"Fitted q_max (plateau): {q_max_fit}")
+    print(f"Fitted K: {K_fit}")
+    print(f"Affinity (nM): {affinity_KD50}")
+    return
+#%%
+fitting_langmuir(dataframe = df_Langmuir_fit,
+                 function = langmuir_isotherm,
+                 guess_K = 0.5,
+                 x_data_col = 1,y_data_col = 3,
+                 figsize_width = 6,figsize_height = 4,
+                 )
+figure_export_png(suffix='_fitting_langmuir')
+figure_export_svg(suffix='_fitting_langmuir')
+
