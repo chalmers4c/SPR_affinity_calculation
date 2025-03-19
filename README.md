@@ -9,7 +9,7 @@ With an excel like below, it is ready to be imported into this code
 
 ![image](https://github.com/user-attachments/assets/26107181-08eb-4925-b9b5-e93c62443d9e)
 
-The code will perform a combined function contains exponential decay and straight line, and each concentration is fitted. Sometimes fit will fail, probably because between the observation window, the curve appear as a straight line, i.e. it is lack of an exponetial decay plateau, this will require the user to either reaquire the data with longer K_on observation window or discard those data
+The code will perform a combined function contains exponential decay and straight line, and each concentration is fitted. Sometimes fit will fail, probably due to the curve appears as a straight line between the observation window, i.e. it is lack of an exponetial decay plateau, this will require the user to either reaquire the data with longer K_on observation window or discard those data
 
 ![CRP_HD_Oligo_ready_after_stack_fitting_rawsignal](https://github.com/user-attachments/assets/81ee1448-0553-4aa9-bef8-d4a29a6c0bed)
 
